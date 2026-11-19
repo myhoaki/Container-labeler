@@ -14,3 +14,14 @@ body.count-task main{display:block;padding:14px;overflow:auto}body.count-task .s
 
 .casting-actions{display:grid;gap:9px}.casting-actions h3{margin:0}.casting-actions p{margin:0;color:#aab5bd;font-size:12px;line-height:1.55}.casting-actions>label{display:grid;grid-template-columns:1fr 90px;align-items:center;gap:8px;color:#aab5bd;font-size:12px}.casting-actions input{width:90px;background:#101418;border:1px solid #48545e;color:white;border-radius:5px;padding:7px}.casting-actions .casting-save-actions{margin-top:2px}.casting-state{margin:0;padding:8px;border-radius:6px;background:#101418;color:#d4e0e5;font-size:12px}
 body.casting-task #cropToggle,body.casting-task #cropPanel{display:none!important}
+/* Modern Web Guidance UI/UX & Accessibility enhancements */
+.visually-hidden:where(:not(:focus-within,:active)){position:absolute!important;clip-path:inset(50%)!important;overflow:hidden!important;width:1px!important;height:1px!important;margin:-1px!important;padding:0!important;border:0!important;white-space:nowrap!important}
+.skip-link{position:fixed;top:8px;left:8px;z-index:1000;padding:8px 12px;border-radius:7px;background:#51b4a0;color:#080b0d;font-weight:700;text-decoration:none}
+:where(a:any-link,button,input,select,summary):focus-visible{outline:3px solid #51b4a0;outline-offset:2px}
+:where(button,input,select){min-block-size:24px;min-inline-size:24px}
+.tools button{min-block-size:32px;min-inline-size:32px}
+.aside-primary{position:sticky;top:-16px;z-index:2;margin:-16px -16px 0;padding:16px 16px 12px;background:#171d22;border-bottom:1px solid #303941}
+.sidebar-disclosure summary{cursor:pointer;color:#aab5bd;font-size:12px;padding:4px 0}
+.disclosure-body>label:not(.check){display:grid;grid-template-columns:1fr 90px;align-items:center;margin:8px 0;color:#aab5bd}
+.count-card{content-visibility:auto;contain-intrinsic-size:auto none auto 250px}
+@media(prefers-reduced-motion:reduce){.progress i{animation-duration:8s}}
