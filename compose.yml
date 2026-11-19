@@ -1,0 +1,41 @@
+services:
+  container-labeler:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${PORT:-8766}:8765"
+    environment:
+      DATA_DIR: /data
+      PORT: 8765
+      SERVER_DATASET_ROOT: /server-dataset/container_images_verified
+    volumes:
+      - ./data:/data
+      - ./data/server_dataset:/server-dataset
+
+  dataset-audit:
+    build:
+      context: .
+      dockerfile: Dockerfile.audit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${AUDIT_PORT:-8767}:8767"
+    environment:
+      DATASET_ROOT: /server-dataset/container_images_verified
+      AUDIT_STATE_DIR: /state
+      PORT: 8767
+      VISION_OLLAMA_URL: http://ollama:11434
+      VISION_MODEL: ${VISION_MODEL:-qwen2.5vl:3b}
+      VISION_TIMEOUT_SECONDS: ${VISION_TIMEOUT_SECONDS:-600}
+    volumes:
+      - ./data/server_dataset:/server-dataset:ro
+      - ./data/audit_state:/state
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["vision"]
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+
+volumes:
+  ollama_models:
