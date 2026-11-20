@@ -8,19 +8,15 @@
 </head>
 <body>
   <header class="topbar">
-    <div><h1>Container Dataset Quality</h1><p>Static dataset validation, paged annotation review, and optional sample-only vision notes.</p></div>
+    <div><h1>Container Dataset Quality</h1><p>Static dataset validation, paged annotation review.</p></div>
     <div class="actions">
       <button id="runAudit">Run audit</button>
-      <label class="sample-count">Scan <select id="auditMode"><option value="full">Full dataset</option><option value="sample">Sample (250 images)</option></select></label>
-      <button id="runVision" disabled>Analyze visual sample</button>
-      <label class="sample-count">Images <input id="visionCount" type="number" min="1" max="16" value="4"></label>
       <button id="downloadJson" disabled>Download JSON</button>
       <button id="downloadHtml" disabled>Download HTML</button>
     </div>
   </header>
   <main>
     <div id="status" class="status">Loading server dataset…</div>
-    <div id="visionStatus" class="status muted">Checking vision model…</div>
     <section class="card model-note"><h2>Optional detector probe</h2><p id="modelStatus">Checking for configured YOLO26n weights…</p><p class="muted">The official pretrained <code>yolo26n.pt</code> uses COCO classes and has no dedicated shipping-container category. Its outputs cannot certify container labels or provide container recall. A container-specific trained checkpoint is required for GT comparison.</p></section>
     <section id="auditDashboard" hidden>
       <div id="auditCards" class="cards"></div>
@@ -28,7 +24,6 @@
     <section class="card review-card"><div class="review-header"><h2>Image review</h2><div><label>Filter <select id="reviewFilter"><option value="all">All images</option><option value="invalid">Invalid labels / unreadable</option><option value="missing">Missing labels</option><option value="empty">Empty annotations</option><option value="tiny">Tiny boxes</option><option value="large">Large boxes</option><option value="near">Near duplicate candidates</option><option value="leakage">Cross-split duplicate candidates</option><option value="lowres">Low resolution</option></select></label> <button id="prevPage">Previous</button> <span id="pageLabel"></span> <button id="nextPage">Next</button></div></div><div id="reviewGrid" class="review-grid"></div><dialog id="reviewDialog"><form method="dialog"><button class="close">Close</button></form><h2 id="detailTitle"></h2><p id="detailMeta"></p><div class="large-preview"><img id="detailImage" alt="Original dataset image"><canvas id="boxCanvas"></canvas></div><div id="detailWarnings"></div></dialog></section>
     </section>
     <div id="progressWrap" class="progress-wrap" hidden><progress id="progress" max="1" value="0"></progress><span id="progressText"></span></div>
-    <section id="visionResults" class="card" hidden><h2>AI visual sample observations</h2><p class="muted">Model-generated descriptions for the reviewed sample only. These are suggestions, not ground truth.</p><div id="visionSummary"></div><div id="visionRows"></div></section>
     <section id="results" hidden>
       <div id="summaryCards" class="cards"></div>
       <section id="verdict" class="verdict"></section>
@@ -47,6 +42,6 @@
   </main>
   <dialog id="preview"><form method="dialog"><button class="close">Close</button></form><h2 id="previewTitle"></h2><img id="previewImage" alt="Dataset sample"><a id="openOriginal" target="_blank" rel="noopener">Open image file</a></dialog>
   <script src="/static/dataset_audit.js"></script>
-    <script src="/static/quality.js?v=20261022-quality-6"></script>
+    <script src="/static/quality.js?v=20261022-quality-7"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 # Container Labeler
 
-This project runs two independent Docker apps: a manual image labeler and a read-only dataset quality audit. Static audit jobs run incrementally on the server and persist results in SQLite; optional sample visual review uses local Ollama in a separate container. The labeler loads the configured server dataset automatically.
+This project runs two independent Docker apps: a manual image labeler and a read-only dataset quality audit. Static audit jobs run incrementally on the server and persist results in SQLite. The labeler loads the configured server dataset automatically.
 
 ## Run with Docker Compose
 
@@ -13,7 +13,7 @@ curl http://127.0.0.1:8766/api/health
 curl http://127.0.0.1:8767/api/health
 ```
 
-After updating the audit source, use `docker compose up -d --build dataset-audit` to rebuild only the audit app. Audit reports and per-image review results persist under `data/audit_state/` and are separate from the dataset. To rebuild both apps, use `docker compose up -d --build`. To also run the optional vision model service, use the vision setup below. The labeler is published on all server interfaces at port `8766`; open `http://<server-ip>:8766` in your browser. Ensure the server firewall allows inbound TCP port 8766. The audit app remains bound to server loopback at port 8767.
+After updating the audit source, use `docker compose up -d --build dataset-audit` to rebuild only the audit app. Audit reports and per-image review results persist under `data/audit_state/` and are separate from the dataset. To rebuild both apps, use `docker compose up -d --build`. The labeler is published on all server interfaces at port `8766`; open `http://<server-ip>:8766` in your browser. Ensure the server firewall allows inbound TCP port 8766. The audit app remains bound to server loopback at port 8767.
 
 Stop with `docker compose down`; restart with `docker compose up -d`; update source and rebuild with `docker compose up -d --build`. SQLite, WAL files, text crop cache, and progress exports live under `./data/` or the dataset’s hidden `.container-labeler/` directory. Back up `data/` and the dataset directory while stopped, or download a per-session JSON progress export from the UI.
 
@@ -50,17 +50,6 @@ The static analyzer uses Pillow for integrity/dimensions and lightweight brightn
 Missing labels are warnings for human review, not verified negatives. Brightness/color/sharpness/hash findings are proxies, not semantic scene-diversity judgments. Near-duplicate candidates are heuristic; scans cap comparisons at two million pairs and mark when truncated. The dataset currently has a flat `images/` and `labels/` layout, so split balance and train/validation leakage checks are limited until files are organized under standard split folders.
 
 The official Ultralytics identifier is `yolo26n.pt`, and the documented Python interface uses `YOLO("yolo26n.pt")` followed by `model.predict(...)`. The pretrained COCO detector has no dedicated shipping-container class, so its predictions cannot validate container recall or annotation correctness. No Ultralytics or Torch dependencies/weights are installed or downloaded by static analysis. Model training and GT comparison remain unavailable until a domain-specific trained checkpoint and a safe, isolated ML runtime are configured; the existing project has no training-job/pipeline conventions to reuse. The dashboard reports this explicitly instead of treating pretrained COCO predictions as container evidence. [Ultralytics YOLO26 docs](https://docs.ultralytics.com/models/yolo26), [predict API docs](https://docs.ultralytics.com/modes/predict).
-
-### Optional server-side vision model
-
-On the server, enable the optional Ollama service and start both apps detached:
-
-```bash
-docker compose --profile vision up -d --build
-docker compose exec ollama ollama pull qwen2.5vl:3b
-```
-
-The model download is about 3.2 GB. The first inference can take longer while the model loads; CPU-only servers will be slower. Ollama is not published on a host port, and its model files persist in the `ollama_models` Docker volume. `docker compose up -d` keeps the containers running after you close the browser or SSH terminal; `restart: unless-stopped` brings them back after a server restart. Check with `docker compose ps` and `docker compose logs -f dataset-audit ollama`. To stop the app, use `docker compose down` (the model volume remains).
 
 ## Direct Python run (manual labeler)
 

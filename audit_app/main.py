@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,9 +22,6 @@ ROOT = Path(__file__).parent
 DATASET_ROOT = Path(os.getenv("DATASET_ROOT", "/server-dataset/container_images_verified"))
 STATE_DIR = Path(os.getenv("AUDIT_STATE_DIR", "/state"))
 DB_PATH = STATE_DIR / "quality-audit.sqlite3"
-VISION_OLLAMA_URL = os.getenv("VISION_OLLAMA_URL", "").rstrip("/")
-VISION_MODEL = os.getenv("VISION_MODEL", "qwen2.5vl:3b")
-VISION_TIMEOUT = float(os.getenv("VISION_TIMEOUT_SECONDS", "600"))
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".avif", ".tif", ".tiff"}
 IGNORED_DIRS = {"_rejected", ".container-labeler", "_annotation_backups"}
 app = FastAPI(title="Container Dataset Audit", version="1.0.0")
@@ -40,13 +36,6 @@ def recover_interrupted_jobs():
         now = datetime.now(timezone.utc).isoformat()
         connection.execute(
             "UPDATE jobs SET status='failed',updated_at=?,error='Audit interrupted by server restart; completed image results are preserved and can be resumed.' WHERE status='running'",
-            (now,),
-        )
-        connection.execute(
-            "CREATE TABLE IF NOT EXISTS vision_jobs (id TEXT PRIMARY KEY, status TEXT, processed INTEGER, total INTEGER, total_dataset_images INTEGER, model TEXT, results_json TEXT, error TEXT, updated_at TEXT)"
-        )
-        connection.execute(
-            "UPDATE vision_jobs SET status='failed',error='Vision sample interrupted by server restart; start a new sample to continue.',updated_at=? WHERE status IN ('queued','running')",
             (now,),
         )
 
@@ -91,10 +80,6 @@ def dataset_inventory():
     return root, images, labels, digest.hexdigest()
 
 
-class VisionRequest(BaseModel):
-    path: str
-
-
 def dataset_path(path: str = "") -> Path:
     if not DATASET_ROOT.is_dir():
         raise HTTPException(404, "The configured server dataset folder is unavailable")
@@ -110,54 +95,6 @@ def dataset_path(path: str = "") -> Path:
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
-
-
-@app.get("/api/vision/status")
-async def vision_status():
-    if not VISION_OLLAMA_URL:
-        return {"configured": False, "available": False, "model": VISION_MODEL}
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.get(f"{VISION_OLLAMA_URL}/api/tags")
-            response.raise_for_status()
-        models = [item.get("name", "") for item in response.json().get("models", [])]
-        return {"configured": True, "available": True, "model": VISION_MODEL, "modelReady": VISION_MODEL in models, "models": models}
-    except (httpx.HTTPError, ValueError):
-        return {"configured": True, "available": False, "model": VISION_MODEL, "modelReady": False, "models": []}
-
-
-@app.post("/api/vision/analyze")
-async def analyze_image(request: VisionRequest):
-    if not VISION_OLLAMA_URL:
-        raise HTTPException(503, "Vision model is not configured")
-    image = dataset_path(request.path)
-    if not image.is_file() or image.suffix.lower() not in IMAGE_EXTENSIONS:
-        raise HTTPException(404, "Dataset image not found")
-    try:
-        encoded = base64.b64encode(image.read_bytes()).decode("ascii")
-    except OSError as error:
-        raise HTTPException(404, "Dataset image could not be read") from error
-    prompt = (
-        "For this shipping-container detection image, return exactly six short lines in this order: "
-        "Visibility/size-distance; View angle (front/side/rear/oblique); Occlusion/truncation; "
-        "Lighting; Container color/appearance; Background clutter. Use 'unclear' where needed. "
-        "Only describe visible details. Do not judge labels or bounding-box correctness. "
-        "These are uncertain observations of this image, not ground truth."
-    )
-    payload = {"model": VISION_MODEL, "stream": False, "messages": [{"role": "user", "content": prompt, "images": [encoded]}], "options": {"temperature": 0.1, "num_predict": 400}}
-    try:
-        async with httpx.AsyncClient(timeout=VISION_TIMEOUT) as client:
-            response = await client.post(f"{VISION_OLLAMA_URL}/api/chat", json=payload)
-            response.raise_for_status()
-        body = response.json()
-        observation = body.get("message", {}).get("content", "").strip()
-        if not observation:
-            raise HTTPException(502, "Vision model returned an empty response")
-        return {"path": request.path, "model": VISION_MODEL, "observation": observation}
-    except httpx.TimeoutException as error:
-        raise HTTPException(504, f"Vision model timed out after {VISION_TIMEOUT:g} seconds") from error
-    except (httpx.HTTPError, ValueError, KeyError) as error:
-        raise HTTPException(502, f"Vision model request failed: {error}") from error
 
 
 @app.get("/api/dataset")
@@ -399,69 +336,6 @@ def audit_html_report(job_id: str):
     summary=report["summary"]
     escaped=json.dumps(report,ensure_ascii=False,indent=2).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
     return f"<!doctype html><meta charset='utf-8'><title>Dataset quality report</title><h1>Dataset quality report</h1><p>Generated {report['metadata']['generatedAt']} · fingerprint {report['metadata']['datasetFingerprint']}</p><h2>Overview</h2><p>{summary['images']} images · {summary['boxes']} boxes · {summary['invalidImages']} images with errors · {summary['missingLabels']} missing labels · {summary['nearDuplicatePairs']} near duplicate candidates</p><h2>Findings and measurements</h2><pre>{escaped}</pre>"
-
-
-class VisionSampleRequest(BaseModel):
-    count: int = 4
-
-
-_vision_lock = threading.Lock()
-VISION_DB_READY = True
-
-
-def save_vision_job(job: dict):
-    with db() as connection:
-        connection.execute("CREATE TABLE IF NOT EXISTS vision_jobs (id TEXT PRIMARY KEY, status TEXT, processed INTEGER, total INTEGER, total_dataset_images INTEGER, model TEXT, results_json TEXT, error TEXT, updated_at TEXT)")
-        connection.execute("INSERT INTO vision_jobs(id,status,processed,total,total_dataset_images,model,results_json,error,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,processed=excluded.processed,total=excluded.total,total_dataset_images=excluded.total_dataset_images,model=excluded.model,results_json=excluded.results_json,error=excluded.error,updated_at=excluded.updated_at", (job["id"],job["status"],job["processed"],job["total"],job["totalDatasetImages"],job["model"],json.dumps(job.get("results",[])),job.get("error"),datetime.now(timezone.utc).isoformat()))
-
-
-def get_vision_job(job_id: str):
-    with db() as connection:
-        connection.execute("CREATE TABLE IF NOT EXISTS vision_jobs (id TEXT PRIMARY KEY, status TEXT, processed INTEGER, total INTEGER, total_dataset_images INTEGER, model TEXT, results_json TEXT, error TEXT, updated_at TEXT)")
-        row=connection.execute("SELECT * FROM vision_jobs WHERE id=?",(job_id,)).fetchone()
-    if not row: return None
-    return {"id":row["id"],"status":row["status"],"processed":row["processed"],"total":row["total"],"totalDatasetImages":row["total_dataset_images"],"model":row["model"],"results":json.loads(row["results_json"] or "[]"),"error":row["error"]}
-
-
-def vision_worker(job_id: str, items: list[dict], model: str):
-    vision=get_vision_job(job_id); vision["status"]="running"; save_vision_job(vision)
-    try:
-        results=[]
-        for index,item in enumerate(items):
-            image=dataset_path(item["path"])
-            encoded=base64.b64encode(image.read_bytes()).decode("ascii")
-            prompt=("For this shipping-container image, give six short fields: Visibility/size-distance; View angle; Occlusion/truncation; Lighting; Container color/appearance; Background clutter. Only visible evidence; mark unclear as unclear; do not judge annotations.")
-            payload={"model":model,"stream":False,"messages":[{"role":"user","content":prompt,"images":[encoded]}],"options":{"temperature":0.1,"num_predict":180}}
-            with httpx.Client(timeout=VISION_TIMEOUT) as client:
-                response=client.post(f"{VISION_OLLAMA_URL}/api/chat",json=payload); response.raise_for_status()
-            results.append({"path":item["path"],"observation":response.json().get("message",{}).get("content","")})
-            vision.update(processed=index+1,results=results); save_vision_job(vision)
-        vision.update(status="complete",results=results); save_vision_job(vision)
-    except Exception as error:
-        vision.update(status="failed",error="Vision analysis failed. Check the model service and server logs."); save_vision_job(vision)
-
-
-@app.post("/api/vision/sample")
-def start_vision_sample(request: VisionSampleRequest):
-    if not VISION_OLLAMA_URL: raise HTTPException(503,"Vision model is not configured")
-    with _vision_lock:
-        if _active_job: raise HTTPException(409,"A static dataset audit is already running")
-        with db() as connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS vision_jobs (id TEXT PRIMARY KEY, status TEXT, processed INTEGER, total INTEGER, total_dataset_images INTEGER, model TEXT, results_json TEXT, error TEXT, updated_at TEXT)")
-            if connection.execute("SELECT 1 FROM vision_jobs WHERE status IN ('queued','running') LIMIT 1").fetchone(): raise HTTPException(409,"A vision sample is already running")
-        count=max(1,min(16,request.count)); _,images,_,_=dataset_inventory()
-        if not images: raise HTTPException(404,"No supported images are available")
-        sampled=images if count>=len(images) else [images[min(len(images)-1,int((i+0.5)*len(images)/count))] for i in range(count)]
-        job_id=uuid.uuid4().hex; vision={"id":job_id,"status":"queued","processed":0,"total":len(sampled),"totalDatasetImages":len(images),"model":VISION_MODEL,"results":[]}; save_vision_job(vision)
-        threading.Thread(target=vision_worker,args=(job_id,sampled,VISION_MODEL),daemon=True).start()
-    return {"id":job_id,"status":"queued","total":len(sampled)}
-
-
-@app.get("/api/vision/jobs/{job_id}")
-def vision_job(job_id: str):
-    job=get_vision_job(job_id)
-    if not job: raise HTTPException(404,"Vision job not found")
-    return job
 
 
 @app.get("/api/model/status")

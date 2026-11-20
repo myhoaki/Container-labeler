@@ -48,15 +48,11 @@ class QualityAuditTests(unittest.TestCase):
             try:
                 with quality.db() as connection:
                     connection.execute("INSERT INTO jobs(id,status,total,created_at,updated_at) VALUES('audit','running',1,'now','now')")
-                    connection.execute("CREATE TABLE vision_jobs (id TEXT PRIMARY KEY, status TEXT, processed INTEGER, total INTEGER, total_dataset_images INTEGER, model TEXT, results_json TEXT, error TEXT, updated_at TEXT)")
-                    connection.execute("INSERT INTO vision_jobs VALUES('vision','running',0,1,1,'model','[]',NULL,'now')")
                 quality.recover_interrupted_jobs()
                 with quality.db() as connection:
                     audit = connection.execute("SELECT status,error FROM jobs WHERE id='audit'").fetchone()
-                    vision = connection.execute("SELECT status,error FROM vision_jobs WHERE id='vision'").fetchone()
                 self.assertEqual(audit["status"], "failed")
                 self.assertIn("can be resumed", audit["error"])
-                self.assertEqual(vision["status"], "failed")
             finally:
                 quality.STATE_DIR = previous_state
                 quality.DB_PATH = previous_db
